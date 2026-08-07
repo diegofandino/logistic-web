@@ -9,14 +9,20 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { usePreferences } from "@/context/preferences-context";
 
-const initialState: ContactState = { status: "idle" };
+const initialState: ContactState = { status: "idle", message: '' };
 
 const fieldClassName =
   "h-auto rounded-xl border-white/14 bg-white/7 px-4 py-3.5 text-white placeholder:text-white/45 focus-visible:border-[#d8ff56] focus-visible:ring-0 focus-visible:bg-white/10";
 
+function FieldError({ messages }: { messages?: string[] }) {
+  if (!messages?.length) return null;
+  return <p className="mt-1 text-xs text-[#f58b72]">{messages[0]}</p>;
+}
+
 export function ContactSection() {
-  const { t } = usePreferences();
-  const [state, action, pending] = useActionState(sendContactMessage, initialState);
+  const { t, language } = usePreferences();
+  const sendContactMessageWithLanguage = sendContactMessage.bind(null, language);
+  const [state, action, pending] = useActionState(sendContactMessageWithLanguage, initialState);
 
   return (
     <section id="contact" className="bg-[#d8ff56] px-6 py-20 lg:px-10 lg:py-28">
@@ -43,21 +49,29 @@ export function ContactSection() {
             aria-hidden="true"
             className="absolute left-[-9999px] h-0 w-0 opacity-0"
           />
-          <div className="grid w-full grid-cols-1 gap-4 place-items-center md:grid-cols-2">
-            <Input required name="name" placeholder={t.name} className={fieldClassName} />
-            <Input required type="email" name="email" placeholder={t.email} className={fieldClassName} />
-            <Input
-              name="company"
-              placeholder={t.company}
-              className={`col-span-1 md:col-span-2 ${fieldClassName}`}
-            />
-            <Textarea
-              required
-              name="message"
-              placeholder={t.message}
-              rows={4}
-              className={`col-span-1 resize-none md:col-span-2 ${fieldClassName}`}
-            />
+          <div className="grid w-full grid-cols-1 items-start gap-4 md:grid-cols-2">
+            <div className="w-full">
+              <Input required name="name" placeholder={t.name} className={fieldClassName} />
+              <FieldError messages={state.errors?.name} />
+            </div>
+            <div className="w-full">
+              <Input required type="email" name="email" placeholder={t.email} className={fieldClassName} />
+              <FieldError messages={state.errors?.email} />
+            </div>
+            <div className="col-span-1 w-full md:col-span-2">
+              <Input name="company" placeholder={t.company} className={fieldClassName} />
+              <FieldError messages={state.errors?.company} />
+            </div>
+            <div className="col-span-1 w-full md:col-span-2">
+              <Textarea
+                required
+                name="message"
+                placeholder={t.message}
+                rows={4}
+                className={`resize-none ${fieldClassName}`}
+              />
+              <FieldError messages={state.errors?.message} />
+            </div>
             <Button
               type="submit"
               disabled={pending}
@@ -66,7 +80,9 @@ export function ContactSection() {
               {pending ? "..." : t.send} <ArrowUpRight />
             </Button>
             {state.status === "success" && <p className="mt-4 text-center text-sm text-[#d8ff56]">{t.success}</p>}
-            {state.status === "error" && <p className="mt-4 text-center text-sm text-[#f58b72]">{t.error}</p>}
+            {state.status === "error" && !state.errors && (
+              <p className="mt-4 text-center text-sm text-[#f58b72]">{t.error}</p>
+            )}
           </div>
         </form>
       </div>

@@ -1,51 +1,85 @@
 "use server";
+import { buildContactEmailHtml } from "@/lib/utils";
+import z from "zod";
+import { Resend } from 'resend';
+import { Language } from "@/lib/locale";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+const formSchema = z.object({
+  name: z.string().min(2).max(100),
+  email: z.string().regex(/^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/),
+  company: z.string().optional(),
+  message: z.string().min(10),
+  website: z.string().optional()
+})
 
 export type ContactState = {
   status: "idle" | "success" | "error";
+  message: string;
+  errors?: Record<string, string[]>;
 };
 
 export async function sendContactMessage(
+  locale: Language,
   _prevState: ContactState,
   formData: FormData
 ): Promise<ContactState> {
+
+  const raw = Object.fromEntries(formData);
+  const result = formSchema.safeParse(raw);
+
+  if (!result.success) {
+    return {
+      status: 'error', errors: result.error.flatten().fieldErrors,
+      message: 'Error parsing form data. Please check your input.'
+    }
+  }
   // Honeypot: real users never see or fill this field. Bots that auto-fill
   // every input do, so treat a non-empty value as spam and bail out quietly.
-  const honeypot = formData.get("website");
-  if (typeof honeypot === "string" && honeypot.length > 0) {
-    return { status: "success" };
+  const honeypot = result.data.website;
+  if (honeypot) {
+    return {
+      status: "success",
+      message: "Message sent successfully!"
+    };
   }
 
-  const name = formData.get("name");
-  const email = formData.get("email");
-  const company = formData.get("company");
-  const message = formData.get("message");
+  const name = result.data.name;
+  const email = result.data.email;
+  const company = result.data.company;
+  const message = result.data.message;
 
-  if (typeof name !== "string" || typeof email !== "string" || typeof message !== "string" || !name || !email || !message) {
-    return { status: "error" };
-  }
-
-  const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.CONTACT_TO_EMAIL;
-  const from = process.env.CONTACT_FROM_EMAIL;
-  if (!apiKey || !to || !from) {
-    return { status: "error" };
+  if (!to) {
+    return {
+      status: "error",
+      message: "Error: Email recipient not configured. Please contact support."
+    };
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from,
-      to: [to],
-      reply_to: email,
-      subject: `New Volt logistics inquiry from ${name}`,
-      text: `Name: ${name}\nEmail: ${email}\nCompany: ${company || "—"}\n\n${message}`,
-    }),
-  });
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.CONTACT_FROM_EMAIL ?? "Logistics <onboarding@resend.dev>",
+      to,
+      subject: `${locale === "es" ? "Nuevo formulario de contacto" : "New contact form submission"} ${name}${company ? ` (${company})` : ""}`,
+      html: buildContactEmailHtml({ name, company, email, message, locale })
+    });
 
-  if (!response.ok) {
-    return { status: "error" };
+    if (error) {
+      console.error("Resend returned an error", error);
+      return {
+        status: "error",
+        message: "Failed to send email. Please try again later."
+      };
+    }
+  } catch (error) {
+    console.error("Failed to send contact email", error);
+    return {
+      status: "error",
+      message: "Error sending email. Please try again later."
+    };
   }
 
-  return { status: "success" };
+  return { status: "success", message: "Message sent successfully!" };
 }
